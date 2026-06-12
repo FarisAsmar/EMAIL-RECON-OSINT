@@ -1,124 +1,158 @@
-const RISK = {
-  critical: { label: "CRITICAL", cls: "red" },
-  high:     { label: "HIGH",     cls: "amber" },
-  low:      { label: "SAFE",     cls: "green" },
-  safe:     { label: "SAFE",     cls: "green" },
-  unknown:  { label: "UNKNOWN",  cls: "muted" },
-};
-const LOGOS = { gmail: "G", instagram: "IG", tiktok: "TT" };
+import { useState } from "react";
+import Scanner from "./components/Scanner";
+import Results from "./components/Results";
+import "./App.css";
 
-export default function Results({ data, onReset }) {
-  const { email, results, chain_possible, risk_score, summary, linked_platforms } = data;
-  const scoreClass = risk_score >= 70 ? "critical" : risk_score >= 30 ? "warn" : "safe";
-  const scoreLabel = risk_score >= 70 ? "⚡ HIGH RISK" : risk_score >= 30 ? "⚠ MODERATE RISK" : "✓ LOW RISK";
+const ZEROBOUNCE_API_KEY = "6b3405af87a24d129af24abe6d970628";
 
-  const nodeColor = (r) => {
-    if (!r) return "muted";
-    if (r.risk === "critical") return "red";
-    if (r.risk === "high") return "amber";
-    if (r.risk === "low" || r.risk === "safe") return "green";
-    return "muted";
+async function checkGmail(email) {
+  if (!email.endsWith("@gmail.com")) {
+    return { platform: "Gmail", status: "skipped", detail: "Not a Gmail address — availability check skipped.", risk: "unknown", icon: "gmail" };
+  }
+  try {
+    const res = await fetch(`https://api.zerobounce.net/v2/validate?api_key=${ZEROBOUNCE_API_KEY}&email=${encodeURIComponent(email)}&ip_address=`);
+    const data = await res.json();
+    const status = (data.status || "").toLowerCase();
+    if (status === "valid") {
+      return { platform: "Gmail", status: "taken", detail: "This Gmail address already exists and is active. The Gmail hijack vector is blocked.", risk: "safe", icon: "gmail" };
+    } else if (status === "invalid") {
+      return { platform: "Gmail", status: "available", detail: "This Gmail address does NOT exist — it is unclaimed. An attacker can register it and trigger password resets on linked platforms.", risk: "critical", icon: "gmail" };
+    } else {
+      return { platform: "Gmail", status: "uncertain", detail: `Could not definitively verify Gmail (status: ${status || "empty"}).`, risk: "unknown", icon: "gmail" };
+    }
+  } catch (e) {
+    return { platform: "Gmail", status: "error", detail: `Verification error: ${e.message}`, risk: "unknown", icon: "gmail" };
+  }
+}
+
+async function checkInstagram(email) {
+  try {
+    const res = await fetch("https://www.instagram.com/accounts/account_recovery_send_ajax/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-CSRFToken": "missing",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://www.instagram.com/accounts/password/reset/",
+      },
+      body: `email_or_username=${encodeURIComponent(email)}&recaptcha_challenge_field=`,
+      mode: "cors",
+    });
+    const body = await res.text();
+    const lower = body.toLowerCase();
+    if (res.status === 200 && (lower.includes("email_sent") || lower.includes('"ok"') || lower.includes("true"))) {
+      return { platform: "Instagram", status: "linked", detail: "An Instagram account is linked to this email. Password reset can be triggered without verifying email ownership.", risk: "high", icon: "instagram" };
+    } else if (res.status === 400 || res.status === 404) {
+      return { platform: "Instagram", status: "not_found", detail: "No Instagram account found linked to this email.", risk: "low", icon: "instagram" };
+    } else {
+      return { platform: "Instagram", status: "uncertain", detail: `Ambiguous response from Instagram (HTTP ${res.status}). May be rate-limited or blocked.`, risk: "unknown", icon: "instagram" };
+    }
+  } catch (e) {
+    // CORS block usually means Instagram responded — treat as uncertain
+    return { platform: "Instagram", status: "uncertain", detail: "Instagram blocked the request (CORS). Try checking manually at instagram.com/accounts/password/reset.", risk: "unknown", icon: "instagram" };
+  }
+}
+
+async function checkTikTok(email) {
+  try {
+    const res = await fetch(`https://www.tiktok.com/passport/web/user/prelogin/?account=${encodeURIComponent(email)}&service=tiktok`, {
+      headers: { "Referer": "https://www.tiktok.com/" },
+      mode: "cors",
+    });
+    const data = await res.json();
+    const statusCode = data?.data?.status;
+    if (statusCode === 1) {
+      return { platform: "TikTok", status: "linked", detail: "A TikTok account is linked to this email. Reset flow can be triggered without verifying email ownership.", risk: "high", icon: "tiktok" };
+    } else if (statusCode === 0) {
+      return { platform: "TikTok", status: "not_found", detail: "No TikTok account found linked to this email.", risk: "low", icon: "tiktok" };
+    } else {
+      return { platform: "TikTok", status: "uncertain", detail: "TikTok returned an unexpected response. May be rate-limited.", risk: "unknown", icon: "tiktok" };
+    }
+  } catch (e) {
+    return { platform: "TikTok", status: "uncertain", detail: "TikTok blocked the request (CORS). Try checking manually at tiktok.com/login.", risk: "unknown", icon: "tiktok" };
+  }
+}
+
+function buildSummary(results, chainPossible, linkedPlatforms) {
+  const gmail = results[0];
+  if (chainPossible) {
+    const names = linkedPlatforms.join(" and ");
+    return `⚠️ Attack chain viable. Gmail is unclaimed and ${names} account(s) are linked to it. An attacker can register this Gmail and trigger password resets — no 2FA needed.`;
+  } else if (gmail.status === "available") {
+    return "Gmail is unclaimed but no linked platform accounts were found. Still a risk — claim this email to prevent future exposure.";
+  } else if (gmail.status === "taken") {
+    return "Gmail address is already registered. The core hijack vector is blocked. Ensure 2FA is enabled on all platforms.";
+  }
+  return "Scan complete. Review individual results below.";
+}
+
+export default function App() {
+  const [scanData, setScanData] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleScan = async (email) => {
+    setScanning(true);
+    setError(null);
+    setScanData(null);
+    try {
+      // All checks run from the browser — no server IP blocking
+      const [gmailResult, igResult, ttResult] = await Promise.all([
+        checkGmail(email),
+        checkInstagram(email),
+        checkTikTok(email),
+      ]);
+
+      const results = [gmailResult, igResult, ttResult];
+      const linkedPlatforms = results.slice(1).filter(r => r.status === "linked").map(r => r.platform);
+      const chainPossible = gmailResult.status === "available" && linkedPlatforms.length > 0;
+
+      let riskScore = 0;
+      results.forEach(r => {
+        if (r.risk === "critical") riskScore += 40;
+        else if (r.risk === "high") riskScore += 30;
+      });
+      riskScore = Math.min(riskScore, 100);
+
+      setScanData({
+        email,
+        results,
+        chain_possible: chainPossible,
+        linked_platforms: linkedPlatforms,
+        risk_score: riskScore,
+        summary: buildSummary(results, chainPossible, linkedPlatforms),
+      });
+    } catch (e) {
+      setError(`Scan failed: ${e.message}`);
+    } finally {
+      setScanning(false);
+    }
   };
-  const nodeSub = (r) => {
-    if (!r) return "";
-    if (r.status === "available") return "Unclaimed";
-    if (r.status === "taken") return "Registered";
-    if (r.status === "linked") return "Found";
-    if (r.status === "not_found") return "Not found";
-    return "Unknown";
-  };
+
+  const handleReset = () => { setScanData(null); setError(null); };
 
   return (
-    <div className="results-page">
-      <div className="results-topbar">
-        <div>
-          <div className="results-email-label">// Scan results for</div>
-          <div className="results-email">{email}</div>
-        </div>
-        <button className="btn-back" onClick={onReset}>← New scan</button>
-      </div>
-
-      <div className={`risk-card ${scoreClass}`}>
-        <div>
-          <div className="risk-score">{risk_score}</div>
-          <div className="risk-score-sub">// risk score</div>
-        </div>
-        <div>
-          <div className="risk-label">{scoreLabel}</div>
-          <div className="risk-summary">{summary}</div>
-        </div>
-      </div>
-
-      <div className="chain-card">
-        <div className="chain-header">
-          <span className="chain-title">Attack chain</span>
-          <span className={`chain-badge ${chain_possible ? "viable" : "blocked"}`}>{chain_possible ? "⚡ VIABLE" : "✓ BLOCKED"}</span>
-        </div>
-        <div className="chain-flow">
-          <ChainNode icon="@" name="Attacker" sub="origin" color="muted" />
-          <ChainArrow on={true} />
-          <ChainNode icon="G" name="Gmail" sub={nodeSub(results[0])} color={nodeColor(results[0])} />
-          <ChainArrow on={chain_possible} label="claim" />
-          <ChainNode icon="IG" name="Instagram" sub={nodeSub(results[1])} color={nodeColor(results[1])} />
-          <ChainArrow on={chain_possible && results[1]?.status === "linked"} label="reset" />
-          <ChainNode icon="TT" name="TikTok" sub={nodeSub(results[2])} color={nodeColor(results[2])} />
-        </div>
-        {chain_possible && (
-          <div className="chain-explain">
-            <span className="chain-explain-icon">⚡</span>
-            <span>Attacker registers <strong>{email}</strong> on Gmail, triggers "Forgot password" on {linked_platforms.join(" and ")}, and the reset link arrives in their inbox. No 2FA required — full account takeover in under 5 minutes.</span>
+    <div className="app">
+      <div className="noise" />
+      <header className="header">
+        <div className="header-inner">
+          <div className="logo">
+            <span className="logo-bracket">[</span>
+            <span className="logo-text">MAIL</span>
+            <span className="logo-accent">RECON</span>
+            <span className="logo-bracket">]</span>
           </div>
-        )}
-      </div>
-
-      <div className="platforms-label">// Platform breakdown</div>
-      <div className="platforms-grid">
-        {results.map((r) => {
-          const cfg = RISK[r.risk] || RISK.unknown;
-          return (
-            <div key={r.platform} className={`platform-card ${cfg.cls}`}>
-              <div className="platform-top">
-                <div className="platform-logo">{LOGOS[r.icon] || r.platform[0]}</div>
-                <div className="platform-name">{r.platform}</div>
-                <span className={`risk-pill ${cfg.cls}`}>{cfg.label}</span>
-              </div>
-              <div className="platform-status">status: <span>{r.status.replace("_", " ")}</span></div>
-              <div className="platform-detail">{r.detail}</div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="mitigation-card">
-        <div className="mitigation-title">How to stay protected</div>
-        <div className="mitigations">
-          <div><div className="mit-num">// 01</div><div className="mit-title">Enable 2FA everywhere</div><div className="mit-body">Use an authenticator app on every platform. This breaks the reset chain even if an attacker registers your email.</div></div>
-          <div><div className="mit-num">// 02</div><div className="mit-title">Claim your email variants</div><div className="mit-body">Register all email addresses linked to your social accounts, even ones you don't actively use as inboxes.</div></div>
-          <div><div className="mit-num">// 03</div><div className="mit-title">Use a password manager</div><div className="mit-body">Unique passwords per platform limit the blast radius if any single account is compromised.</div></div>
+          <p className="tagline">Email hijack chain demonstrator — for security awareness only</p>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function ChainNode({ icon, name, sub, color }) {
-  return (
-    <div className="chain-node">
-      <div className={`chain-icon ${color}`}>{icon}</div>
-      <div className="chain-node-name">{name}</div>
-      <div className="chain-node-sub">{sub}</div>
-    </div>
-  );
-}
-
-function ChainArrow({ on, label }) {
-  return (
-    <div className={`chain-arrow ${on ? "on" : "off"}`}>
-      {label && <span className="chain-arrow-label">{label}</span>}
-      <div className="chain-arrow-row">
-        <div className="chain-arrow-line" />
-        <span className="chain-arrow-tip">›</span>
-      </div>
+      </header>
+      <main className="main">
+        {!scanData && <Scanner onScan={handleScan} scanning={scanning} error={error} />}
+        {scanData && <Results data={scanData} onReset={handleReset} />}
+      </main>
+      <footer className="footer">
+        <p>Built for educational purposes · Never use against accounts you don't own</p>
+        <a href="https://github.com/FarisAsmar/email-recon-awareness" target="_blank" rel="noreferrer">GitHub ↗</a>
+      </footer>
     </div>
   );
 }

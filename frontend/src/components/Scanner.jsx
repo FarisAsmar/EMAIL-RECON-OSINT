@@ -1,6 +1,4 @@
 import { useState } from "react";
-import "./Scanner.css";
-
 export default function Scanner({ onScan, scanning, error }) {
   const [email, setEmail] = useState("");
 

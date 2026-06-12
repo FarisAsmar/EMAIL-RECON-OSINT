@@ -1,5 +1,3 @@
-import "./Results.css";
-
 const RISK_CONFIG = {
   critical: { label: "CRITICAL", color: "danger", icon: "✗" },
   high:     { label: "HIGH",     color: "warn",   icon: "⚠" },

@@ -4,79 +4,44 @@ import Results from "./components/Results";
 import About from "./components/About";
 import "./App.css";
 
+const API = "https://email-rec-awareness-production.up.railway.app";
+
 async function checkGmail(email) {
   if (!email.endsWith("@gmail.com")) return { platform: "Gmail", status: "skipped", detail: "Not a Gmail address.", risk: "unknown", icon: "gmail" };
   try {
-    const res = await fetch("https://accounts.google.com/signup/v2/createaccount", {
-      headers: { "Referer": "https://accounts.google.com/" },
-      mode: "cors",
-    });
-    const html = await res.text();
-    const formData = new FormData();
-    formData.append("email", email);
-    const checkRes = await fetch("https://accounts.google.com/_/signin/sl/lookup", {
+    const res = await fetch(`https://accounts.google.com/_/signin/sl/lookup`, {
       method: "POST",
-      headers: { "Referer": "https://accounts.google.com/" },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ email: email }),
       mode: "cors",
     });
-    const checkBody = await checkRes.text();
-    if (checkBody.includes('"error":1') || checkBody.includes("WRONG_PASSWD_SIGNIN") || checkBody.includes("InvalidEmail")) {
+    const checkBody = await res.text();
+    if (checkBody.includes('"error":1') || checkBody.includes("WRONG_PASSWD") || checkBody.includes("InvalidEmail")) {
       return { platform: "Gmail", status: "available", detail: "This Gmail address does not exist and can be registered. An attacker can create it and trigger password resets on linked platforms.", risk: "critical", icon: "gmail" };
     } else if (checkBody.includes('"error":2') || checkBody.includes("PASSWD_NOT_MATCH")) {
       return { platform: "Gmail", status: "taken", detail: "This Gmail address already exists and is active. The Gmail hijack vector is blocked.", risk: "safe", icon: "gmail" };
-    } else {
-      return { platform: "Gmail", status: "uncertain", detail: "Could not verify Gmail status.", risk: "unknown", icon: "gmail" };
     }
+    return { platform: "Gmail", status: "uncertain", detail: "Could not verify Gmail status.", risk: "unknown", icon: "gmail" };
   } catch (e) {
-    return { platform: "Gmail", status: "uncertain", detail: "Gmail check blocked (CORS). Try checking manually at accounts.google.com.", risk: "unknown", icon: "gmail" };
+    return { platform: "Gmail", status: "uncertain", detail: "Gmail check blocked (CORS).", risk: "unknown", icon: "gmail" };
   }
 }
 
 async function checkInstagram(email) {
   try {
-    const res = await fetch("https://www.instagram.com/accounts/account_recovery_send_ajax/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "X-CSRFToken": "missing",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://www.instagram.com/accounts/password/reset/",
-      },
-      body: `email_or_username=${encodeURIComponent(email)}&recaptcha_challenge_field=`,
-      mode: "cors",
-    });
-    const body = await res.text();
-    const lower = body.toLowerCase();
-    if (res.status === 200 && (lower.includes("email_sent") || lower.includes('"ok"') || lower.includes("true"))) {
-      return { platform: "Instagram", status: "linked", detail: "An Instagram account is linked to this email. Password reset can be triggered without verifying email ownership.", risk: "high", icon: "instagram" };
-    } else if (res.status === 400 || res.status === 404) {
-      return { platform: "Instagram", status: "not_found", detail: "No Instagram account found linked to this email.", risk: "low", icon: "instagram" };
-    } else {
-      return { platform: "Instagram", status: "uncertain", detail: `Ambiguous response from Instagram (HTTP ${res.status}). May be rate-limited or blocked.`, risk: "unknown", icon: "instagram" };
-    }
+    const res = await fetch(`${API}/proxy/instagram?email=${encodeURIComponent(email)}`);
+    return { platform: "Instagram", icon: "instagram", ...await res.json() };
   } catch (e) {
-    return { platform: "Instagram", status: "uncertain", detail: "Instagram blocked the request (CORS). Try checking manually at instagram.com/accounts/password/reset.", risk: "unknown", icon: "instagram" };
+    return { platform: "Instagram", status: "error", detail: `Request failed: ${e.message}`, risk: "unknown", icon: "instagram" };
   }
 }
 
 async function checkTikTok(email) {
   try {
-    const res = await fetch(`https://www.tiktok.com/passport/web/user/prelogin/?account=${encodeURIComponent(email)}&service=tiktok`, {
-      headers: { "Referer": "https://www.tiktok.com/" },
-      mode: "cors",
-    });
-    const data = await res.json();
-    const statusCode = data?.data?.status;
-    if (statusCode === 1) {
-      return { platform: "TikTok", status: "linked", detail: "A TikTok account is linked to this email. Reset flow can be triggered without verifying email ownership.", risk: "high", icon: "tiktok" };
-    } else if (statusCode === 0) {
-      return { platform: "TikTok", status: "not_found", detail: "No TikTok account found linked to this email.", risk: "low", icon: "tiktok" };
-    } else {
-      return { platform: "TikTok", status: "uncertain", detail: "TikTok returned an unexpected response. May be rate-limited.", risk: "unknown", icon: "tiktok" };
-    }
+    const res = await fetch(`${API}/proxy/tiktok?email=${encodeURIComponent(email)}`);
+    return { platform: "TikTok", icon: "tiktok", ...await res.json() };
   } catch (e) {
-    return { platform: "TikTok", status: "uncertain", detail: "TikTok blocked the request (CORS). Try checking manually at tiktok.com/login.", risk: "unknown", icon: "tiktok" };
+    return { platform: "TikTok", status: "error", detail: `Request failed: ${e.message}`, risk: "unknown", icon: "tiktok" };
   }
 }
 

@@ -12,7 +12,8 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36",
 ]
 
-def is_valid_email(email): return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email))
+def is_valid_email(email): 
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email))
 
 async def check_gmail_playwright(email):
     try:
@@ -73,18 +74,21 @@ async def check_instagram_playwright(email):
         return {"status": "error", "detail": f"Instagram check failed: {str(e)}", "risk": "unknown"}
 
 @app.get("/proxy/gmail")
-async def proxy_gmail(email: Query(str)):
-    if not is_valid_email(email): return {"status": "error", "detail": "Invalid email format.", "risk": "unknown"}
+async def proxy_gmail(email: str = Query(...)):
+    if not is_valid_email(email):
+        return {"status": "error", "detail": "Invalid email format.", "risk": "unknown"}
     return await check_gmail_playwright(email)
 
 @app.get("/proxy/instagram")
-async def proxy_instagram(email: Query(str)):
-    if not is_valid_email(email): return {"status": "error", "detail": "Invalid email format.", "risk": "unknown"}
+async def proxy_instagram(email: str = Query(...)):
+    if not is_valid_email(email):
+        return {"status": "error", "detail": "Invalid email format.", "risk": "unknown"}
     return await check_instagram_playwright(email)
 
 @app.get("/proxy/tiktok")
-async def proxy_tiktok(email: Query(str)):
-    if not is_valid_email(email): return {"status": "error", "detail": "Invalid email format.", "risk": "unknown"}
+async def proxy_tiktok(email: str = Query(...)):
+    if not is_valid_email(email):
+        return {"status": "error", "detail": "Invalid email format.", "risk": "unknown"}
     return await check_tiktok_playwright(email)
 
 @app.get("/health")
@@ -93,5 +97,6 @@ async def health():
 
 @app.post("/api/scan")
 async def scan(email: str):
-    if not is_valid_email(email): return {"error": "Invalid email"}
+    if not is_valid_email(email):
+        return {"error": "Invalid email"}
     return {"email": email}

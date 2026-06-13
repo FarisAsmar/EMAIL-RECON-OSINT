@@ -4,8 +4,6 @@ import Results from "./components/Results";
 import About from "./components/About";
 import "./App.css";
 
-const API = "https://email-rec-awareness-production.up.railway.app";
-
 async function checkGmail(email) {
   if (!email.endsWith("@gmail.com")) return { platform: "Gmail", status: "skipped", detail: "Not a Gmail address.", risk: "unknown", icon: "gmail" };
   try {
@@ -13,7 +11,6 @@ async function checkGmail(email) {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ email: email }),
-      mode: "cors",
     });
     const checkBody = await res.text();
     if (checkBody.includes('"error":1') || checkBody.includes("WRONG_PASSWD") || checkBody.includes("InvalidEmail")) {
@@ -29,19 +26,45 @@ async function checkGmail(email) {
 
 async function checkInstagram(email) {
   try {
-    const res = await fetch(`${API}/proxy/instagram?email=${encodeURIComponent(email)}`);
-    return { platform: "Instagram", icon: "instagram", ...await res.json() };
+    const res = await fetch("https://www.instagram.com/accounts/account_recovery_send_ajax/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-CSRFToken": "missing",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body: `email_or_username=${encodeURIComponent(email)}&recaptcha_challenge_field=`,
+      mode: "cors",
+    });
+    const body = await res.text();
+    const lower = body.toLowerCase();
+    if (res.status === 200 && (lower.includes("email_sent") || lower.includes('"ok"') || lower.includes("true"))) {
+      return { platform: "Instagram", status: "linked", detail: "An Instagram account is linked to this email.", risk: "high", icon: "instagram" };
+    } else if (res.status === 400 || res.status === 404) {
+      return { platform: "Instagram", status: "not_found", detail: "No Instagram account found linked to this email.", risk: "low", icon: "instagram" };
+    }
+    return { platform: "Instagram", status: "uncertain", detail: "Ambiguous Instagram response.", risk: "unknown", icon: "instagram" };
   } catch (e) {
-    return { platform: "Instagram", status: "error", detail: `Request failed: ${e.message}`, risk: "unknown", icon: "instagram" };
+    return { platform: "Instagram", status: "uncertain", detail: "Instagram blocked the request (CORS).", risk: "unknown", icon: "instagram" };
   }
 }
 
 async function checkTikTok(email) {
   try {
-    const res = await fetch(`${API}/proxy/tiktok?email=${encodeURIComponent(email)}`);
-    return { platform: "TikTok", icon: "tiktok", ...await res.json() };
+    const res = await fetch(`https://www.tiktok.com/passport/web/user/prelogin/?account=${encodeURIComponent(email)}&service=tiktok`, {
+      headers: { "Referer": "https://www.tiktok.com/" },
+      mode: "cors",
+    });
+    const data = await res.json();
+    const statusCode = data?.data?.status;
+    if (statusCode === 1) {
+      return { platform: "TikTok", status: "linked", detail: "A TikTok account is linked to this email.", risk: "high", icon: "tiktok" };
+    } else if (statusCode === 0) {
+      return { platform: "TikTok", status: "not_found", detail: "No TikTok account found linked to this email.", risk: "low", icon: "tiktok" };
+    }
+    return { platform: "TikTok", status: "uncertain", detail: "TikTok returned unexpected response.", risk: "unknown", icon: "tiktok" };
   } catch (e) {
-    return { platform: "TikTok", status: "error", detail: `Request failed: ${e.message}`, risk: "unknown", icon: "tiktok" };
+    return { platform: "TikTok", status: "uncertain", detail: "TikTok blocked the request (CORS).", risk: "unknown", icon: "tiktok" };
   }
 }
 

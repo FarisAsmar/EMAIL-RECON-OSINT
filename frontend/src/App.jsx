@@ -10,12 +10,8 @@ const API = "https://email-rec-awareness-production.up.railway.app";
 async function checkGmail(email) {
   if (!email.endsWith("@gmail.com")) return { platform: "Gmail", status: "skipped", detail: "Not a Gmail address.", risk: "unknown", icon: "gmail" };
   try {
-    const res = await fetch(`https://api.zerobounce.net/v2/validate?api_key=${ZEROBOUNCE_API_KEY}&email=${encodeURIComponent(email)}&ip_address=`);
-    const data = await res.json();
-    const s = (data.status || "").toLowerCase();
-    if (s === "valid") return { platform: "Gmail", status: "taken", detail: "This Gmail address already exists and is active. The Gmail hijack vector is blocked.", risk: "safe", icon: "gmail" };
-    if (s === "invalid") return { platform: "Gmail", status: "available", detail: "This Gmail address does not exist and can be registered. An attacker can create it and trigger password resets on linked platforms.", risk: "critical", icon: "gmail" };
-    return { platform: "Gmail", status: "uncertain", detail: `Could not verify Gmail status (${s || "no response"}).`, risk: "unknown", icon: "gmail" };
+    const res = await fetch(`${API}/proxy/gmail?email=${encodeURIComponent(email)}`);
+    return { platform: "Gmail", icon: "gmail", ...await res.json() };
   } catch (e) {
     return { platform: "Gmail", status: "error", detail: `Verification error: ${e.message}`, risk: "unknown", icon: "gmail" };
   }

@@ -85,8 +85,8 @@ export default function Scanner({ onScan, scanning, error }) {
       {scanning && (
         <div className="scan-log">
           <div className="log-header">// SCAN OUTPUT</div>
-          <div className="log-line"><span className="log-ok">✓</span> Connecting to ZeroBounce SMTP verification API...</div>
-          <div className="log-line log-delay-1"><span className="log-ok">✓</span> Launching headless Chromium browser instance...</div>
+          <div className="log-line"><span className="log-ok">✓</span> Launching headless Chromium browser instance...</div>
+          <div className="log-line log-delay-1"><span className="log-ok">✓</span> Probing Gmail signup endpoint...</div>
           <div className="log-line log-delay-2"><span className="log-ok">✓</span> Probing Instagram and TikTok login endpoints...</div>
           <div className="log-line log-delay-3"><span className="log-wait">⟳</span> Analysing attack chain viability...</div>
         </div>
@@ -102,7 +102,7 @@ export default function Scanner({ onScan, scanning, error }) {
             <div className="step-num">// STEP 01</div>
             <div className="step-icon">📧</div>
             <div className="step-title">Gmail availability check</div>
-            <div className="step-desc">We verify whether the Gmail address is currently registered or still available to claim using a real SMTP handshake via ZeroBounce API.</div>
+            <div className="step-desc">We verify whether the Gmail address is currently registered or still available to claim using Chromium browser automation to interact with Google's signup flow.</div>
           </div>
           <div className="step-card">
             <div className="step-num">// STEP 02</div>
